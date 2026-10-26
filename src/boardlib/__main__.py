@@ -6,6 +6,7 @@ import pathlib
 import sys
 
 import boardlib.api.aurora
+import boardlib.api.boardsesh
 import boardlib.api.kilter
 import boardlib.api.moon
 import boardlib.db.aurora
@@ -32,6 +33,10 @@ LOGBOOK_FIELDS = (
 def logbook_entries(board, username, password, database=None):
     if board == boardlib.api.kilter.BOARD:
         yield from boardlib.api.kilter.logbook_entries(board, username, password)
+        return
+
+    if board == boardlib.api.boardsesh.BOARD:
+        yield from boardlib.api.boardsesh.logbook_entries(username, password)
         return
 
     api = (
@@ -106,6 +111,16 @@ def handle_database_command(args):
 
 
 def handle_logbook_command(args):
+    is_boardsesh = args.board == boardlib.api.boardsesh.BOARD
+    # With a token, Boardsesh needs no username or password
+    boardsesh_token = (
+        os.environ.get(boardlib.api.boardsesh.TOKEN_ENV_VAR) if is_boardsesh else None
+    )
+    if not args.username and not boardsesh_token:
+        args.error("the following arguments are required: -u/--username")
+    if args.board_type and not is_boardsesh:
+        args.error("--board-type is only for boardsesh")
+
     if args.board.startswith("moon"):
         entries = boardlib.api.moon.logbook_entries(
             args.board, args.username, get_password(args.board)
@@ -113,6 +128,13 @@ def handle_logbook_command(args):
     elif args.board == boardlib.api.kilter.BOARD:
         entries = boardlib.api.kilter.logbook_entries(
             args.board, args.username, get_password(args.board)
+        )
+    elif is_boardsesh:
+        entries = boardlib.api.boardsesh.logbook_entries(
+            args.username,
+            None if boardsesh_token else get_password(args.board),
+            board_type=args.board_type,
+            token=boardsesh_token,
         )
     else:
         if not args.database_path or not args.database_path.exists():
@@ -244,25 +266,36 @@ def add_logbook_parser(subparsers):
         choices=sorted(
             boardlib.api.moon.BOARD_IDS.keys()
             | boardlib.api.aurora.HOST_BASES.keys()
-            | {boardlib.api.kilter.BOARD}
+            | {boardlib.api.kilter.BOARD, boardlib.api.boardsesh.BOARD}
         ),
     )
     logbook_parser.add_argument(
         "-d", "--database-path",
         help=(
-            "Path for the database file. Run the 'database' command first to download the database. Required for Aurora-based boards, not for kilter or the Moonboard."
+            "Path for the database file. Run the 'database' command first to download the database. Required for Aurora-based boards, not for kilter, boardsesh or the Moonboard."
         ),
         type=pathlib.Path,
         required=False,
     )
     logbook_parser.add_argument(
-        "-u", "--username", help="Username. For kilter, the email address of the Kilter account", required=True
+        "-u", "--username",
+        help=(
+            "Username. For kilter and boardsesh, the email address of the account. "
+            f"Not needed for boardsesh when {boardlib.api.boardsesh.TOKEN_ENV_VAR} is set"
+        ),
+        required=False,
+    )
+    logbook_parser.add_argument(
+        "--board-type",
+        help="For boardsesh: only download the logbook of this board type. Defaults to all board types",
+        choices=boardlib.api.boardsesh.BOARD_TYPES,
+        required=False,
     )
     logbook_parser.add_argument("-o", "--output", help="Output file", required=False)
     logbook_parser.add_argument(
         "--no-headers", help="Don't write headers", action="store_true", required=False
     )
-    logbook_parser.set_defaults(func=handle_logbook_command)
+    logbook_parser.set_defaults(func=handle_logbook_command, error=logbook_parser.error)
 
 
 def add_images_parser(subparsers):

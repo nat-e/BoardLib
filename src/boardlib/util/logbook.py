@@ -30,6 +30,7 @@ def parse_timestamp(timestamp, tz=None):
 
 def climb_key(entry):
     return (
+        entry["board"],
         entry["climb_uuid"] or entry["climb_name"],
         entry["is_mirror"],
         entry["angle"],
@@ -39,8 +40,8 @@ def climb_key(entry):
 def add_session_counts(logbook):
     """
     Add sessions_count, tries_total and is_repeat to date-sorted logbook entries, as
-    for the Aurora boards. For each climb, angle and mirror setting: the number of
-    days with an entry so far, the number of tries so far, and whether there is an
+    for the Aurora boards. For each board, climb, angle and mirror setting: the number
+    of days with an entry so far, the number of tries so far, and whether there is an
     earlier entry.
     """
     days = collections.defaultdict(set)
@@ -58,14 +59,14 @@ def add_session_counts(logbook):
 def combine_attempts(entries):
     """
     Turn entries of single logs into logbook entries, sorted by date. Each entry
-    needs at least climb_uuid, climb_name, angle, is_mirror, date, tries and
+    needs at least board, climb_uuid, climb_name, angle, is_mirror, date, tries and
     is_ascent.
 
     Each ascent stays an entry. The tries of entries without an ascent are added to
-    the next ascent of the same climb at the same angle on the same day, like the
-    attempts of the Aurora boards. Entries without an ascent after an ascent of the
-    climb that day are left out, as the climb was already sent. Other entries without
-    an ascent are summed into one entry per day with is_ascent False.
+    the next ascent of the same climb at the same angle and mirror setting on the same
+    day, like the attempts of the Aurora boards. Entries without an ascent after an
+    ascent of the climb that day are left out, as the climb was already sent. Other
+    entries without an ascent are summed into one entry per day with is_ascent False.
     """
     entries = sorted(entries, key=lambda entry: entry["date"])
 
