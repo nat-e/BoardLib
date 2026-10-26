@@ -7,11 +7,9 @@ app signs in through Keycloak at idp.kiltergrips.com and serves the logbook from
 portal.kiltergrips.com. Climb UUIDs were kept from the Aurora era.
 """
 
-import collections
-import datetime
-import re
-
 import requests
+
+import boardlib.util.logbook
 
 
 BOARD = "kilter"
@@ -139,25 +137,6 @@ def difficulty_to_grade(grade_names, difficulty):
     return grade_names.get(int(round(difficulty))) if difficulty is not None else None
 
 
-def parse_timestamp(timestamp, tz=None):
-    """
-    Convert a UTC timestamp from the API, such as "2026-04-01T17:42:10.123456Z", to a
-    naive datetime in the given timezone, to the second.
-
-    :param tz: The target timezone. Defaults to the local timezone.
-    """
-    # Before Python 3.11, fromisoformat needs an explicit offset and 3 or 6 fractional digits.
-    timestamp = re.sub(
-        r"\.(\d+)",
-        lambda match: "." + match.group(1)[:6].ljust(6, "0"),
-        timestamp.replace("Z", "+00:00"),
-    )
-    parsed = datetime.datetime.fromisoformat(timestamp)
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
-    return parsed.astimezone(tz).replace(tzinfo=None, microsecond=0)
-
-
 def log_to_entry(board, log, grade_names, tz=None):
     is_ascent = bool(log.get("topped") or log.get("flashed"))
     attempts = log.get("attempts") or 0
@@ -172,7 +151,7 @@ def log_to_entry(board, log, grade_names, tz=None):
         "board": board,
         "angle": log.get("angle"),
         "climb_name": log.get("climbName"),
-        "date": parse_timestamp(log["createdAt"], tz),
+        "date": boardlib.util.logbook.parse_timestamp(log["createdAt"], tz),
         "logged_grade": difficulty_to_grade(
             grade_names, rating.get("difficultyGradeId")
         ),
@@ -189,33 +168,6 @@ def log_to_entry(board, log, grade_names, tz=None):
     }
 
 
-def climb_key(entry):
-    return (
-        entry["climb_uuid"] or entry["climb_name"],
-        entry["is_mirror"],
-        entry["angle"],
-    )
-
-
-def add_session_counts(logbook):
-    """
-    Add sessions_count, tries_total and is_repeat to date-sorted logbook entries, as
-    for the Aurora boards. For each climb, angle and mirror setting: the number of
-    days with an entry so far, the number of tries so far, and whether there is an
-    earlier entry.
-    """
-    days = collections.defaultdict(set)
-    tries_totals = collections.defaultdict(int)
-    for entry in logbook:
-        key = climb_key(entry)
-        entry["is_repeat"] = key in tries_totals
-        days[key].add(entry["date"].date())
-        entry["sessions_count"] = len(days[key])
-        tries_totals[key] += entry["tries"]
-        entry["tries_total"] = tries_totals[key]
-    return logbook
-
-
 def process_logs(board, logs, grade_names, tz=None):
     """
     Turn logs from get_logs into logbook entries, sorted by date.
@@ -224,36 +176,14 @@ def process_logs(board, logs, grade_names, tz=None):
     next ascent of the same climb at the same angle on the same day, like the attempts
     of the Aurora boards. Logs without a top after an ascent of the climb that day are
     left out, as the climb was already sent. Other logs without a top are summed into
-    one entry with is_ascent False.
+    one entry with is_ascent False. See boardlib.util.logbook.combine_attempts.
 
     :param grade_names: The grade names from get_grade_names.
     :param tz: The timezone for dates and days. Defaults to the local timezone.
     """
-    entries = sorted(
-        (log_to_entry(board, log, grade_names, tz) for log in logs),
-        key=lambda entry: entry["date"],
+    return boardlib.util.logbook.combine_attempts(
+        log_to_entry(board, log, grade_names, tz) for log in logs
     )
-
-    logbook = []
-    attempts = {}
-    sent = set()
-    for entry in entries:
-        key = climb_key(entry) + (entry["date"].date(),)
-        if entry["is_ascent"]:
-            earlier_attempts = attempts.pop(key, None)
-            if earlier_attempts:
-                entry["tries"] += earlier_attempts["tries"]
-            sent.add(key)
-            logbook.append(entry)
-        elif key in sent:
-            continue
-        elif key in attempts:
-            attempts[key]["tries"] += entry["tries"]
-        else:
-            attempts[key] = entry
-
-    logbook = sorted(logbook + list(attempts.values()), key=lambda entry: entry["date"])
-    return add_session_counts(logbook)
 
 
 def logbook_entries(board, username, password, grade_type="boulder", tz=None):
