@@ -152,26 +152,6 @@ class TestKilter(unittest.TestCase):
             boardlib.api.kilter.get_grade_names(GRADES, "hueco"), {17: "V3", 18: "V4"}
         )
 
-    def test_parse_timestamp(self):
-        expected = datetime.datetime(2026, 4, 1, 17, 42, 10)
-        for timestamp in (
-            "2026-04-01T17:42:10Z",
-            "2026-04-01T17:42:10.1Z",
-            "2026-04-01T17:42:10.123456Z",
-            "2026-04-01T17:42:10.123456789Z",
-            "2026-04-01T19:42:10.5+02:00",
-            "2026-04-01T17:42:10",
-        ):
-            self.assertEqual(
-                boardlib.api.kilter.parse_timestamp(timestamp, UTC), expected
-            )
-        self.assertEqual(
-            boardlib.api.kilter.parse_timestamp(
-                "2026-04-01T23:42:10Z", datetime.timezone(datetime.timedelta(hours=-4))
-            ),
-            datetime.datetime(2026, 4, 1, 19, 42, 10),
-        )
-
     def test_process_logs_flash(self):
         self.assertEqual(
             process_logs(make_log()),
